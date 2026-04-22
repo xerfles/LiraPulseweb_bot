@@ -65,81 +65,77 @@ for isim, sembol in VARLIKLAR.items():
 
 df_analiz = pd.DataFrame(analiz_data)
 
-# --- 1. BÖLÜM: İNTERAKTİF CÜZDAN (WALLET) ---
-st.subheader("💼 Kişisel Cüzdanım (İnteraktif Kar / Zarar Hesaplayıcı)")
-st.info("Aşağıdaki tabloya tıklayarak elinizdeki varlıkları, adetlerini ve maliyetlerinizi düzenleyebilirsiniz. Satır ekleyip çıkarabilirsiniz, panel anlık fiyatlarla toplam getirinizi otomatik hesaplar.")
+# --- 1. BÖLÜM: İNTERAKTİF CÜZDAN (İSTEĞE BAĞLI / GİZLİ) ---
+# expanded=False yaparak site ilk açıldığında bu bölümün kapalı gelmesini sağlıyoruz.
+with st.expander("💼 Kişisel Cüzdanım (Kar / Zarar Hesaplayıcıyı Açmak İçin Tıklayın)", expanded=False):
+    st.info("Aşağıdaki tabloya tıklayarak elinizdeki varlıkları, adetlerini ve maliyetlerinizi düzenleyebilirsiniz. Panel anlık fiyatlarla toplam getirinizi otomatik hesaplar.")
 
-# Varsayılan örnek portföy
-if 'portfoy' not in st.session_state:
-    st.session_state['portfoy'] = pd.DataFrame({
-        "Varlık": ["THYAO", "TUPRS", "BTC"],
-        "Adet": [100.0, 50.0, 0.05],
-        "Maliyet": [250.0, 150.0, 65000.0]
-    })
-
-# Kullanıcının tabloyu canlı olarak düzenlemesine izin veren modül
-edited_df = st.data_editor(st.session_state['portfoy'], num_rows="dynamic", use_container_width=True)
-st.session_state['portfoy'] = edited_df
-
-# Kar/Zarar Matematiği
-cuzdan_sonuclari = []
-toplam_maliyet_tl = 0
-toplam_guncel_deger_tl = 0
-
-# Kriptolar için anlık Dolar kurunu çekiyoruz
-usd_try_data = fetch_finance_data("TRY=X", "1d")
-dolar_kuru = usd_try_data['Close'].iloc[-1] if not usd_try_data.empty else 32.50
-
-for index, row in edited_df.iterrows():
-    varlik = row["Varlık"]
-    adet = row["Adet"]
-    maliyet = row["Maliyet"]
-    
-    if varlik in anlik_fiyatlar and adet > 0:
-        guncel_fiyat = anlik_fiyatlar[varlik]
-        toplam_maliyet = adet * maliyet
-        guncel_deger = adet * guncel_fiyat
-        kar_zarar_brm = guncel_deger - toplam_maliyet
-        kar_zarar_yuzde = (kar_zarar_brm / toplam_maliyet) * 100 if toplam_maliyet > 0 else 0
-        
-        birim = "$" if varlik in ["BTC", "ETH", "PAXG"] else "TL"
-        
-        # Genel toplam için her şeyi TL'ye çeviriyoruz
-        if birim == "$":
-            toplam_maliyet_tl += (toplam_maliyet * dolar_kuru)
-            toplam_guncel_deger_tl += (guncel_deger * dolar_kuru)
-        else:
-            toplam_maliyet_tl += toplam_maliyet
-            toplam_guncel_deger_tl += guncel_deger
-            
-        cuzdan_sonuclari.append({
-            "Varlık": varlik,
-            "Adet": adet,
-            "Maliyet": f"{maliyet:.2f} {birim}",
-            "Güncel Fiyat": f"{guncel_fiyat:.2f} {birim}",
-            "Güncel Değer": f"{guncel_deger:.2f} {birim}",
-            "Net K/Z": kar_zarar_brm,
-            "Getiri %": kar_zarar_yuzde
+    if 'portfoy' not in st.session_state:
+        st.session_state['portfoy'] = pd.DataFrame({
+            "Varlık": ["THYAO", "TUPRS", "BTC"],
+            "Adet": [100.0, 50.0, 0.05],
+            "Maliyet": [250.0, 150.0, 65000.0]
         })
 
-if cuzdan_sonuclari:
-    cuzdan_df = pd.DataFrame(cuzdan_sonuclari)
-    def color_kz(val):
-        color = '#00FF00' if val > 0 else '#FF0000'
-        return f'color: {color}'
-    
-    st.dataframe(cuzdan_df.style.format({
-        "Net K/Z": "{:.2f}",
-        "Getiri %": "{:.2f}%"
-    }).map(color_kz, subset=["Net K/Z", "Getiri %"]), use_container_width=True)
-    
-    genel_kz_tl = toplam_guncel_deger_tl - toplam_maliyet_tl
-    genel_kz_yuzde = (genel_kz_tl / toplam_maliyet_tl) * 100 if toplam_maliyet_tl > 0 else 0
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("💼 Toplam Yatırım Maliyeti (TL)", f"{toplam_maliyet_tl:,.2f} ₺")
-    col2.metric("💰 Güncel Bakiye (TL)", f"{toplam_guncel_deger_tl:,.2f} ₺")
-    col3.metric("🚀 Toplam Portföy Getirisi", f"{genel_kz_tl:,.2f} ₺", f"{genel_kz_yuzde:.2f}%")
+    edited_df = st.data_editor(st.session_state['portfoy'], num_rows="dynamic", use_container_width=True)
+    st.session_state['portfoy'] = edited_df
+
+    cuzdan_sonuclari = []
+    toplam_maliyet_tl = 0
+    toplam_guncel_deger_tl = 0
+
+    usd_try_data = fetch_finance_data("TRY=X", "1d")
+    dolar_kuru = usd_try_data['Close'].iloc[-1] if not usd_try_data.empty else 32.50
+
+    for index, row in edited_df.iterrows():
+        varlik = row["Varlık"]
+        adet = row["Adet"]
+        maliyet = row["Maliyet"]
+        
+        if varlik in anlik_fiyatlar and adet > 0:
+            guncel_fiyat = anlik_fiyatlar[varlik]
+            toplam_maliyet = adet * maliyet
+            guncel_deger = adet * guncel_fiyat
+            kar_zarar_brm = guncel_deger - toplam_maliyet
+            kar_zarar_yuzde = (kar_zarar_brm / toplam_maliyet) * 100 if toplam_maliyet > 0 else 0
+            
+            birim = "$" if varlik in ["BTC", "ETH", "PAXG"] else "TL"
+            
+            if birim == "$":
+                toplam_maliyet_tl += (toplam_maliyet * dolar_kuru)
+                toplam_guncel_deger_tl += (guncel_deger * dolar_kuru)
+            else:
+                toplam_maliyet_tl += toplam_maliyet
+                toplam_guncel_deger_tl += guncel_deger
+                
+            cuzdan_sonuclari.append({
+                "Varlık": varlik,
+                "Adet": adet,
+                "Maliyet": f"{maliyet:.2f} {birim}",
+                "Güncel Fiyat": f"{guncel_fiyat:.2f} {birim}",
+                "Güncel Değer": f"{guncel_deger:.2f} {birim}",
+                "Net K/Z": kar_zarar_brm,
+                "Getiri %": kar_zarar_yuzde
+            })
+
+    if cuzdan_sonuclari:
+        cuzdan_df = pd.DataFrame(cuzdan_sonuclari)
+        def color_kz(val):
+            color = '#00FF00' if val > 0 else '#FF0000'
+            return f'color: {color}'
+        
+        st.dataframe(cuzdan_df.style.format({
+            "Net K/Z": "{:.2f}",
+            "Getiri %": "{:.2f}%"
+        }).map(color_kz, subset=["Net K/Z", "Getiri %"]), use_container_width=True)
+        
+        genel_kz_tl = toplam_guncel_deger_tl - toplam_maliyet_tl
+        genel_kz_yuzde = (genel_kz_tl / toplam_maliyet_tl) * 100 if toplam_maliyet_tl > 0 else 0
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("💼 Toplam Maliyet (TL)", f"{toplam_maliyet_tl:,.2f} ₺")
+        col2.metric("💰 Güncel Bakiye (TL)", f"{toplam_guncel_deger_tl:,.2f} ₺")
+        col3.metric("🚀 Portföy Getirisi", f"{genel_kz_tl:,.2f} ₺", f"{genel_kz_yuzde:.2f}%")
 
 # --- 2. BÖLÜM: PİYASA SİNYALLERİ ---
 st.divider()
