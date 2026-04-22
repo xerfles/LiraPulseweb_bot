@@ -5,7 +5,16 @@ import time
 
 st.set_page_config(page_title="Alper Finans Paneli", layout="wide")
 
-st.title("🚀 Kişisel Portföy ve Teknik Analiz Paneli")
+# Otomatik yenileme veya manuel yenileme butonu
+col1, col2 = st.columns([4, 1])
+with col1:
+    st.title("🚀 Kişisel Portföy ve Teknik Analiz Paneli")
+with col2:
+    st.write("") # Hizalama boşluğu
+    if st.button("🔄 Verileri Yenile"):
+        st.cache_data.clear() # Önbelleği temizle
+        st.rerun() # Sayfayı güncel verilerle yenile
+
 st.markdown("Bu panel; BIST endekslerini, seçili hisse senetlerini ve kripto varlıkları anlık olarak analiz eder.")
 
 ENDEKSLER = {"BIST 100": "XU100.IS", "BIST 30": "XU030.IS"}
@@ -16,6 +25,7 @@ VARLIKLAR = {
     "BTC": "BTC-USD", "ETH": "ETH-USD", "PAXG": "PAXG-USD"
 }
 
+@st.cache_data(ttl=60) # 60 saniyelik önbellek (Ban yememek için)
 def get_data(sembol):
     ticker = yf.Ticker(sembol)
     return ticker.history(period="1y")
@@ -32,21 +42,20 @@ for i, (isim, sembol) in enumerate(ENDEKSLER.items()):
             degisim = ((guncel - data['Close'].iloc[-2]) / data['Close'].iloc[-2]) * 100
             cols[i].metric(label=isim, value=f"{guncel:,.2f}", delta=f"{degisim:.2f}%")
         else:
-            cols[i].warning(f"{isim} verisi anlık çekilemedi.")
+            cols[i].warning(f"{isim} verisi alınamadı.")
     except:
-        cols[i].warning(f"{isim} verisi anlık çekilemedi.")
+        cols[i].warning(f"{isim} verisi alınamadı.")
 
 st.divider()
 
 # --- 2. BÖLÜM: DETAYLI VARLIK ANALİZİ ---
 st.subheader("💎 Varlık Bazlı Detaylı Analiz")
-
 analiz_listesi = []
 
 for isim, sembol in VARLIKLAR.items():
     try:
         data = get_data(sembol)
-        time.sleep(0.1) # Yahoo Finance'i yormamak için ufak bir es verme
+        time.sleep(0.5) # Yahoo'yu yormamak için nefes alma süresi
         
         if len(data) < 21:
             continue
@@ -75,12 +84,10 @@ for isim, sembol in VARLIKLAR.items():
 
 df = pd.DataFrame(analiz_listesi)
 
-# Tabloyu Renklendirme ve Sıfırları Temizleme Formati
 def color_delta(val):
-    color = '#00FF00' if val > 0 else '#FF0000' # Koyu tema için parlak yeşil ve kırmızı
+    color = '#00FF00' if val > 0 else '#FF0000'
     return f'color: {color}'
 
-# Sadece 2 ondalık hane gösterecek format ayarı
 format_dict = {
     'Fiyat': '{:.2f}', 'Günlük %': '{:.2f}', 'Haftalık %': '{:.2f}',
     'Aylık %': '{:.2f}', 'Yıllık %': '{:.2f}', 
@@ -90,4 +97,4 @@ format_dict = {
 styled_df = df.style.format(format_dict).map(color_delta, subset=['Günlük %', 'Haftalık %', 'Aylık %', 'Yıllık %'])
 
 st.dataframe(styled_df, use_container_width=True)
-st.info("💡 Destek seviyesi alım fırsatlarını, Direnç seviyesi ise kar satışlarını takip etmek için teknik bir göstergedir.")
+st.info("💡 Destek seviyesi alım fırsatlarını, Direnç seviyesi ise kar satışlarını takip etmek için teknik bir göstergedir. Verileri anlık güncellemek için sağ üstteki butonu kullanabilirsiniz.")
