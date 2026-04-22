@@ -13,7 +13,6 @@ if refresh_btn:
     st.cache_data.clear()
 
 st.title("📈 LiraPulse: Portföy ve Piyasa Analiz Terminali")
-st.markdown("Algoritmik piyasa takibi, canlı fiyatlama ve interaktif cüzdan yönetimi.")
 
 VARLIKLAR = {
     "THYAO": "THYAO.IS", "TUPRS": "TUPRS.IS", "KCHOL": "KCHOL.IS", 
@@ -26,13 +25,6 @@ VARLIKLAR = {
 def fetch_finance_data(symbol, period):
     return yf.Ticker(symbol).history(period=period)
 
-def calculate_rsi(data, window=14):
-    delta = data['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
 # --- CANLI VERİ ÇEKİMİ ---
 analiz_data = []
 anlik_fiyatlar = {}
@@ -41,135 +33,79 @@ for isim, sembol in VARLIKLAR.items():
     try:
         hist = fetch_finance_data(sembol, "1y")
         if hist.empty: continue
-        
-        current_price = hist['Close'].iloc[-1]
-        anlik_fiyatlar[isim] = current_price
-        
-        daily_change = ((current_price - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
-        rsi_val = calculate_rsi(hist).iloc[-1]
-        sma50 = hist['Close'].tail(50).mean()
-        volume = hist['Volume'].iloc[-1]
-        std_dev = hist['Close'].tail(20).std()
+        anlik_fiyatlar[isim] = hist['Close'].iloc[-1]
         
         analiz_data.append({
             "Varlık": isim,
-            "Fiyat": current_price,
-            "Günlük %": daily_change,
-            "RSI (14)": rsi_val,
-            "Destek (SMA50)": sma50,
-            "Volatilite": std_dev,
-            "Hacim": volume,
-            "Durum": "🔴 Aşırı Alım" if rsi_val > 70 else ("🟢 Aşırı Satım" if rsi_val < 30 else "⚪ Stabil")
+            "Fiyat": hist['Close'].iloc[-1],
+            "Günlük %": ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100,
+            "RSI (14)": 100 - (100 / (1 + (hist['Close'].diff().where(hist['Close'].diff() > 0, 0).rolling(14).mean() / -hist['Close'].diff().where(hist['Close'].diff() < 0, 0).rolling(14).mean()))).iloc[-1]
         })
     except: continue
 
-df_analiz = pd.DataFrame(analiz_data)
-
-# --- 1. BÖLÜM: İNTERAKTİF CÜZDAN (İSTEĞE BAĞLI / GİZLİ) ---
-# expanded=False yaparak site ilk açıldığında bu bölümün kapalı gelmesini sağlıyoruz.
-with st.expander("💼 Kişisel Cüzdanım (Kar / Zarar Hesaplayıcıyı Açmak İçin Tıklayın)", expanded=False):
-    st.info("Aşağıdaki tabloya tıklayarak elinizdeki varlıkları, adetlerini ve maliyetlerinizi düzenleyebilirsiniz. Panel anlık fiyatlarla toplam getirinizi otomatik hesaplar.")
-
+# --- 1. BÖLÜM: İSTEĞE BAĞLI CÜZDAN (SEÇİMLİ SÜTUN) ---
+with st.expander("💼 Kişisel Cüzdanım (Seçim Yapmak İçin Tıklayın)", expanded=False):
     if 'portfoy' not in st.session_state:
-        st.session_state['portfoy'] = pd.DataFrame({
-            "Varlık": ["THYAO", "TUPRS", "BTC"],
-            "Adet": [100.0, 50.0, 0.05],
-            "Maliyet": [250.0, 150.0, 65000.0]
-        })
+        st.session_state['portfoy'] = pd.DataFrame([
+            {"Varlık": "THYAO", "Adet": 100.0, "Maliyet": 250.0},
+            {"Varlık": "BTC", "Adet": 0.05, "Maliyet": 65000.0}
+        ])
 
-    edited_df = st.data_editor(st.session_state['portfoy'], num_rows="dynamic", use_container_width=True)
+    # BURASI KRİTİK: Sütunu Selectbox (Açılır Menü) Yapıyoruz
+    edited_df = st.data_editor(
+        st.session_state['portfoy'], 
+        num_rows="dynamic", 
+        use_container_width=True,
+        column_config={
+            "Varlık": st.column_config.SelectboxColumn(
+                "Varlık Seç",
+                help="Takip listendeki varlıklardan birini seç",
+                width="medium",
+                options=list(VARLIKLAR.keys()), # Sadece bizim listedeki isimler görünecek
+                required=True,
+            )
+        }
+    )
     st.session_state['portfoy'] = edited_df
 
+    # Kar/Zarar Hesaplama (Önceki kodla aynı mantık)
     cuzdan_sonuclari = []
     toplam_maliyet_tl = 0
     toplam_guncel_deger_tl = 0
-
-    usd_try_data = fetch_finance_data("TRY=X", "1d")
-    dolar_kuru = usd_try_data['Close'].iloc[-1] if not usd_try_data.empty else 32.50
+    usd_try = fetch_finance_data("TRY=X", "1d")['Close'].iloc[-1]
 
     for index, row in edited_df.iterrows():
         varlik = row["Varlık"]
-        adet = row["Adet"]
-        maliyet = row["Maliyet"]
-        
-        if varlik in anlik_fiyatlar and adet > 0:
-            guncel_fiyat = anlik_fiyatlar[varlik]
-            toplam_maliyet = adet * maliyet
-            guncel_deger = adet * guncel_fiyat
-            kar_zarar_brm = guncel_deger - toplam_maliyet
-            kar_zarar_yuzde = (kar_zarar_brm / toplam_maliyet) * 100 if toplam_maliyet > 0 else 0
-            
+        if varlik in anlik_fiyatlar:
+            guncel_f = anlik_fiyatlar[varlik]
+            m = row["Maliyet"]
+            a = row["Adet"]
+            t_m = a * m
+            g_d = a * guncel_f
             birim = "$" if varlik in ["BTC", "ETH", "PAXG"] else "TL"
             
             if birim == "$":
-                toplam_maliyet_tl += (toplam_maliyet * dolar_kuru)
-                toplam_guncel_deger_tl += (guncel_deger * dolar_kuru)
+                toplam_maliyet_tl += (t_m * usd_try)
+                toplam_guncel_deger_tl += (g_d * usd_try)
             else:
-                toplam_maliyet_tl += toplam_maliyet
-                toplam_guncel_deger_tl += guncel_deger
+                toplam_maliyet_tl += t_m
+                toplam_guncel_deger_tl += g_d
                 
             cuzdan_sonuclari.append({
-                "Varlık": varlik,
-                "Adet": adet,
-                "Maliyet": f"{maliyet:.2f} {birim}",
-                "Güncel Fiyat": f"{guncel_fiyat:.2f} {birim}",
-                "Güncel Değer": f"{guncel_deger:.2f} {birim}",
-                "Net K/Z": kar_zarar_brm,
-                "Getiri %": kar_zarar_yuzde
+                "Varlık": varlik, "Adet": a, "Maliyet": f"{m:.2f} {birim}",
+                "Güncel": f"{guncel_f:.2f} {birim}", "K/Z %": ((g_d - t_m) / t_m) * 100 if t_m > 0 else 0
             })
 
     if cuzdan_sonuclari:
-        cuzdan_df = pd.DataFrame(cuzdan_sonuclari)
-        def color_kz(val):
-            color = '#00FF00' if val > 0 else '#FF0000'
-            return f'color: {color}'
-        
-        st.dataframe(cuzdan_df.style.format({
-            "Net K/Z": "{:.2f}",
-            "Getiri %": "{:.2f}%"
-        }).map(color_kz, subset=["Net K/Z", "Getiri %"]), use_container_width=True)
-        
-        genel_kz_tl = toplam_guncel_deger_tl - toplam_maliyet_tl
-        genel_kz_yuzde = (genel_kz_tl / toplam_maliyet_tl) * 100 if toplam_maliyet_tl > 0 else 0
-        
-        col1, col2, col3 = st.columns(3)
-        col1.metric("💼 Toplam Maliyet (TL)", f"{toplam_maliyet_tl:,.2f} ₺")
-        col2.metric("💰 Güncel Bakiye (TL)", f"{toplam_guncel_deger_tl:,.2f} ₺")
-        col3.metric("🚀 Portföy Getirisi", f"{genel_kz_tl:,.2f} ₺", f"{genel_kz_yuzde:.2f}%")
+        st.dataframe(pd.DataFrame(cuzdan_sonuclari), use_container_width=True)
+        st.metric("🚀 Toplam Portföy Getirisi", f"{toplam_guncel_deger_tl - toplam_maliyet_tl:,.2f} ₺")
 
-# --- 2. BÖLÜM: PİYASA SİNYALLERİ ---
+# --- 2. BÖLÜM: PİYASA VE GRAFİK ---
 st.divider()
-st.subheader("📊 Piyasa Tarama ve Canlı Sinyaller")
-st.dataframe(df_analiz.style.format({
-    "Fiyat": "{:.2f}", 
-    "Günlük %": "{:.2f}", 
-    "RSI (14)": "{:.2f}", 
-    "Destek (SMA50)": "{:.2f}",
-    "Volatilite": "{:.2f}",
-    "Hacim": "{:,.0f}"
-}), use_container_width=True)
+st.subheader("📊 Canlı Sinyaller")
+st.dataframe(pd.DataFrame(analiz_data), use_container_width=True)
 
-# --- 3. BÖLÜM: GRAFİK ---
-st.divider()
-st.subheader("🔍 İnteraktif Grafik ve Trend Analizi")
-target = st.selectbox("Detaylı incelemek istediğiniz varlığı seçin:", list(VARLIKLAR.keys()))
-
+target = st.selectbox("Grafik İncele:", list(VARLIKLAR.keys()))
 if target:
-    detail_data = fetch_finance_data(VARLIKLAR[target], selected_range)
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(x=detail_data.index,
-                open=detail_data['Open'], high=detail_data['High'],
-                low=detail_data['Low'], close=detail_data['Close'], name='Fiyat'))
-                
-    detail_data['SMA20'] = detail_data['Close'].rolling(window=20).mean()
-    fig.add_trace(go.Scatter(x=detail_data.index, y=detail_data['SMA20'], 
-                             line=dict(color='orange', width=1.5), name='SMA 20'))
-                             
-    fig.update_layout(title=f"{target} Teknik Analiz Grafiği", 
-                      xaxis_rangeslider_visible=False, 
-                      template="plotly_dark",
-                      height=500)
-    st.plotly_chart(fig, use_container_width=True)
-
-st.markdown("---")
-st.markdown("<p style='text-align: center; color: gray; font-size: 14px;'><b>LiraPulse Terminal</b> | Veriler anlık olarak yfinance altyapısı üzerinden işlenmektedir.</p>", unsafe_allow_html=True)
+    d = fetch_finance_data(VARLIKLAR[target], selected_range)
+    st.plotly_chart(go.Figure(data=[go.Candlestick(x=d.index, open=d['Open'], high=d['High'], low=d['Low'], close=d['Close'])]), use_container_width=True)
